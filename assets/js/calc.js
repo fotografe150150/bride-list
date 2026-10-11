@@ -64,5 +64,45 @@
     return Math.round((target - today) / 86400000);
   }
 
-  window.BrideCalc = { itemStatus, remaining, percentOf, summarize, categoryState, costs, daysUntil };
+
+  /* ---------- ميزانيات الفئات ----------
+     الميزانية المخصصة ≠ مبلغ مدفوع. null = «لم تُحدد» (ليست صفرًا). */
+  const money2 = v => Math.round(num(v) * 100) / 100;
+  const isSet = v => v !== null && v !== undefined && v !== "" && Number.isFinite(Number(v)) && Number(v) >= 0;
+
+  /* خطة توزيع الميزانية: تعتمد على الفئات المحددة الميزانية فقط. */
+  function budgetPlan(totalBudget, categories) {
+    const total = isSet(totalBudget) ? money2(totalBudget) : null;
+    const withBudget = categories.filter(c => isSet(c.budget));
+    const allocated = money2(withBudget.reduce((s, c) => s + Number(c.budget), 0));
+    const plan = {
+      total, allocated, setCount: withBudget.length, unsetCount: categories.length - withBudget.length,
+      unallocated: 0, overage: 0, percent: null, status: "no-total"
+    };
+    if (total === null) { plan.status = "no-total"; return plan; }           // الإجمالي غير محدد
+    if (total === 0) { plan.status = "zero-total"; plan.overage = allocated; return plan; } // حالة خاصة: لا قسمة على صفر
+    plan.percent = Math.round((allocated / total) * 100);
+    const diff = money2(total - allocated);
+    if (diff > 0) {
+      plan.status = plan.setCount === 0 ? "none-set" : "under"; plan.unallocated = diff;
+      if (plan.percent >= 100) plan.percent = 99;                              // لا نعرض 100% وفيه مبلغ غير موزع
+    } else if (diff < 0) { plan.status = "over"; plan.overage = money2(-diff); }
+    else plan.status = "equal";
+    return plan;
+  }
+
+  /* أرقام فئة واحدة: الميزانية مقابل تكلفة القائمة والمشتريات والمتبقي. */
+  function categoryBudget(cat, items) {
+    const c = costs(items), has = isSet(cat.budget), budget = has ? Number(cat.budget) : null;
+    const spent = c.purchasedCost.total;
+    return {
+      budget, isSet: has,
+      requiredCost: c.requiredCost, purchasedCost: c.purchasedCost, remainingCost: c.remainingCost,
+      left: has ? money2(budget - spent) : null,                                // المتبقي من ميزانية الفئة بعد المشتريات
+      usedPercent: has && budget > 0 ? Math.round((spent / budget) * 100) : null,
+      requiredOver: has && c.requiredCost.total > budget ? money2(c.requiredCost.total - budget) : 0
+    };
+  }
+
+  window.BrideCalc = { budgetPlan, categoryBudget, isBudgetSet: isSet, itemStatus, remaining, percentOf, summarize, categoryState, costs, daysUntil };
 })();

@@ -1,36 +1,28 @@
 /* Local data layer: no server, account, or network requests. */
 (() => {
   const STORAGE_KEY = "brideListApp.v1";
-  const defaultCategories = [
-    { id: "cat-bedroom", icon: "bed", name: "غرفة النوم", sortOrder: 1 },
-    { id: "cat-kitchen", icon: "kitchen", name: "المطبخ", sortOrder: 2 },
-    { id: "cat-appliances", icon: "appliance", name: "الأجهزة الكهربائية", sortOrder: 3 },
-    { id: "cat-bathroom", icon: "drop", name: "الحمام", sortOrder: 4 },
-    { id: "cat-linen", icon: "curtain", name: "المفروشات", sortOrder: 5 },
-    { id: "cat-clothes", icon: "hanger", name: "الملابس", sortOrder: 6 },
-    { id: "cat-personal", icon: "flower", name: "العناية الشخصية", sortOrder: 7 },
-    { id: "cat-other", icon: "box", name: "متفرقات", sortOrder: 8 }
-  ];
-  const defaultItems = [
-    ["cat-bedroom","ملايات سرير","طقم",4],["cat-bedroom","مخدات","قطعة",4],["cat-bedroom","لحاف","قطعة",2],["cat-bedroom","بطاطين","قطعة",2],["cat-bedroom","كوفرتة","قطعة",2],["cat-bedroom","واقي مرتبة","قطعة",1],
-    ["cat-kitchen","طقم حلل","طقم",1],["cat-kitchen","طقم أطباق","طقم",1],["cat-kitchen","أكواب","طقم",2],["cat-kitchen","مجات","قطعة",6],["cat-kitchen","ملاعق وشوك وسكاكين","طقم",1],["cat-kitchen","صواني","قطعة",3],["cat-kitchen","طقم توابل","طقم",1],["cat-kitchen","علب حفظ الطعام","طقم",1],["cat-kitchen","مصفاة ومبشرة","قطعة",2],
-    ["cat-appliances","ثلاجة","جهاز",1],["cat-appliances","غسالة","جهاز",1],["cat-appliances","بوتاجاز","جهاز",1],["cat-appliances","خلاط","جهاز",1],["cat-appliances","مكواة","جهاز",1],["cat-appliances","مروحة","جهاز",1],
-    ["cat-bathroom","مناشف","قطعة",6],["cat-bathroom","دواسة حمام","قطعة",2],["cat-bathroom","ستارة حمام","قطعة",1],["cat-bathroom","سلة غسيل","قطعة",1],
-    ["cat-linen","فوط مطبخ","قطعة",6],["cat-linen","مفرش سفرة","قطعة",2],["cat-linen","ستائر","طقم",2],["cat-linen","سجاد","قطعة",2],
-    ["cat-clothes","ملابس بيت","قطعة",6],["cat-clothes","ملابس خروج","قطعة",4],["cat-clothes","ملابس داخلية","قطعة",8],["cat-clothes","أحذية","زوج",3],
-    ["cat-personal","مستلزمات عناية","مجموعة",1],["cat-personal","فرش وأدوات شعر","مجموعة",1],["cat-personal","عطور","قطعة",2],
-    ["cat-other","شنط سفر","قطعة",2],["cat-other","أدوات تنظيف","مجموعة",1],["cat-other","عدة إسعافات أولية","مجموعة",1]
-  ];
+  /* معرّفات الفئات الافتراضية القديمة (قبل تحديث الفئات). تُحذف مرة واحدة فقط عند الترحيل، بعد أخذ نسخة احتياطية.
+     فئة «الرفايع» والفئات التي أنشأها المستخدم بنفسه لا تُحذف أبدًا. */
+  const LEGACY_DEFAULT_CAT_IDS = ["cat-bedroom", "cat-kitchen", "cat-appliances", "cat-bathroom", "cat-linen", "cat-clothes", "cat-personal", "cat-other"];
   const clone = value => JSON.parse(JSON.stringify(value));
-  const SCHEMA = 3;
-  const ICON_KEYS = ["auto","bed","kitchen","appliance","drop","curtain","hanger","flower","box","heart","gift","bag","home","star","sparkles","pot"];
+  const SCHEMA = 5;
+  const IMAGE_KEY = STORAGE_KEY + ".heroImage";          /* الصورة المخصصة منفصلة عن بيانات القائمة */
+  const TIPS_KEY = STORAGE_KEY + ".tips";             /* حالة قوائم النصائح الذهبية: مفتاح مستقل لا يؤثر على بنود القائمة */
+  const BACKUP_V5_KEY = STORAGE_KEY + ".pre-v5-backup";  /* نسخة البيانات قبل تحديث الفئات */
+  const IMAGE_EXPORT_MAX = 700 * 1024;                   /* أقصى حجم للصورة داخل ملف التصدير */
+  const IMG_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+\/=]+$/;
+  /* الميزانية: null = غير محددة (ليست صفرًا) */
+  const cleanBudget = v => (v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) || Number(v) < 0) ? null : Math.round(Number(v) * 100) / 100;
+  const ICON_KEYS = ["auto","bed","kitchen","appliance","drop","curtain","hanger","flower","box","heart","gift","bag","home","star","sparkles","pot","cup","basket","plane"];
   const FALLBACK_CAT = { id: "cat-recovered", name: "بنود بدون فئة" };
 
 
-  /* ---------- تخصيص چيسي + فئة «الرفايع» ----------
+  /* ---------- اسم العروسة + فئة «الرفايع» ----------
      البذور (Seeds) تُطبَّق مرة واحدة فقط لكل مستخدم (العلامة state.seeds.rafayea)،
      فلا تتكرر الفئة أو البنود عند التحديث، ولا تعود بنود حذفها المستخدم. */
-  const DEFAULT_BRIDE_NAME = "چيسي";
+  /* الاسم الظاهر الافتراضي (مؤقت): يُغيَّر من هنا فقط، أو من الإعدادات لكل مستخدمة. */
+  const DEFAULT_BRIDE_NAME = "عروسة";
+  const LEGACY_DEFAULT_NAME_RE = /^[چج]يسي$/;   /* الاسم الافتراضي القديم؛ يُستبدل مرة واحدة عند الترحيل */
   const RAFAYEA = {
     id: "cat-rafayea", name: "الرفايع", icon: "pot",
     description: "أدوات المطبخ الصغيرة ومستلزمات الطهي والتقديم"
@@ -102,7 +94,7 @@
       let cat = st.categories.find(c => c.id === RAFAYEA.id) || st.categories.find(c => nameKey(c.name) === nameKey(RAFAYEA.name));
       if (!cat) {
         const maxOrder = st.categories.reduce((m, c) => Math.max(m, Number(c.sortOrder) || 0), 0);
-        cat = { id: RAFAYEA.id, name: RAFAYEA.name, icon: RAFAYEA.icon, description: RAFAYEA.description, sortOrder: maxOrder + 1 };
+        cat = { id: RAFAYEA.id, name: RAFAYEA.name, icon: RAFAYEA.icon, description: RAFAYEA.description, budget: null, sortOrder: maxOrder + 1 };
         st.categories.push(cat);
       }
       const have = new Set(st.items.filter(it => it.categoryId === cat.id).map(it => nameKey(it.name)));
@@ -123,21 +115,73 @@
     return changed;
   }
 
-  function makeInitialState() {
+  /* ---------- الفئات الجديدة (الترحيل v5) ----------
+     يُنفَّذ مرة واحدة فقط لكل مستخدمة (العلامة state.seeds.catalogV5):
+       1) يحذف الفئات الافتراضية القديمة (بالمعرّف) وبنودها — بعد أن تكون النسخة الاحتياطية قد حُفظت.
+       2) يضيف الفئات الجديدة وبنودها من BrideCatalog دون تكرار.
+       3) يُبقي «الرفايع» وكل فئة أنشأتها المستخدمة بنفسها كما هي، ويرتّب الفئات (الجديدة ثم الرفايع ثم الباقي).
+       4) يستبدل الاسم الافتراضي القديم المحفوظ في الإعدادات (أي اسم آخر كتبته المستخدمة يبقى كما هو).
+     يعدّل الحالة الممرَّرة مباشرة، ويرجع إحصاءات الترحيل أو null لو لم يُنفَّذ. */
+  function applyCatalogV5(st) {
+    st.seeds = st.seeds && typeof st.seeds === "object" ? st.seeds : {};
+    if (st.seeds.catalogV5) return null;
+    const catalog = window.BrideCatalog;
+    if (!catalog || !Array.isArray(catalog.categories)) return null;   /* بدون الكتالوج لا نحذف شيئًا */
+    const stats = { removedCategories: 0, removedItems: 0, addedCategories: 0, addedItems: 0 };
+    const protectedIds = new Set([RAFAYEA.id]);
+    const removeIds = new Set(st.categories.filter(c => LEGACY_DEFAULT_CAT_IDS.includes(c.id) && !protectedIds.has(c.id)).map(c => c.id));
+    const carriedBudgets = new Map();                   /* ميزانية فئة قديمة تنتقل للفئة الجديدة التي تحمل نفس الاسم */
+    st.categories.forEach(c => { if (removeIds.has(c.id) && c.budget !== null && c.budget !== undefined) carriedBudgets.set(nameKey(c.name), c.budget); });
+    stats.removedCategories = removeIds.size;
+    stats.removedItems = st.items.filter(it => removeIds.has(it.categoryId)).length;
+    st.categories = st.categories.filter(c => !removeIds.has(c.id));
+    st.items = st.items.filter(it => !removeIds.has(it.categoryId));
+
     const now = new Date().toISOString();
+    const usedIds = new Set(st.items.map(it => it.id));
+    let order = st.items.reduce((m, it) => Math.max(m, Number(it.sortOrder) || 0), 0);
+    const fresh = [];
+    catalog.categories.forEach(def => {
+      const id = `cat-v5-${def.key}`;
+      let cat = st.categories.find(c => c.id === id) || st.categories.find(c => c.id !== RAFAYEA.id && nameKey(c.name) === nameKey(def.name));
+      if (!cat) {
+        cat = { id, name: def.name, icon: def.icon, description: def.description, budget: carriedBudgets.has(nameKey(def.name)) ? carriedBudgets.get(nameKey(def.name)) : null, sortOrder: 0 };
+        st.categories.push(cat); stats.addedCategories++;
+      }
+      fresh.push(cat);
+      const have = new Set(st.items.filter(it => it.categoryId === cat.id).map(it => nameKey(it.name)));
+      let n = 0;
+      def.groups.forEach(group => group.items.forEach(row => {
+        n++;
+        const itemId = `item-v5-${def.key}-${n}`, key = nameKey(row[0]);
+        if (have.has(key) || usedIds.has(itemId)) return;
+        have.add(key); usedIds.add(itemId);
+        st.items.push({
+          id: itemId, categoryId: cat.id, name: row[0], unit: row[1], required: row[2], purchased: 0, unitPrice: null,
+          status: "missing", notes: row[3] || "", group: group.title, sortOrder: ++order, createdAt: now, updatedAt: now
+        });
+        stats.addedItems++;
+      }));
+    });
+    let so = 0;
+    fresh.forEach(c => { c.sortOrder = ++so; });
+    const rafayea = st.categories.find(c => c.id === RAFAYEA.id);
+    if (rafayea && !fresh.includes(rafayea)) rafayea.sortOrder = ++so;
+    st.categories.filter(c => !fresh.includes(c) && c !== rafayea).sort((a, b) => (Number(a.sortOrder) || 0) - (Number(b.sortOrder) || 0)).forEach(c => { c.sortOrder = ++so; });
+
+    if (st.profile && LEGACY_DEFAULT_NAME_RE.test(String(st.profile.name || "").trim())) st.profile.name = "";
+    st.seeds.catalogV5 = true;
+    return stats;
+  }
+
+  function makeInitialState() {
     const fresh = {
       version: 1, schema: SCHEMA,
-      profile: { name: DEFAULT_BRIDE_NAME, weddingDate: "" },
-      totalBudget: null,
-      categories: clone(defaultCategories),
-      items: defaultItems.map((row, index) => ({
-        id: `item-default-${index + 1}`, categoryId: row[0], name: row[1],
-        unit: row[2], required: row[3], purchased: 0, unitPrice: null,
-        status: "missing", notes: "", sortOrder: index + 1, createdAt: now, updatedAt: now
-      })),
-      nextId: 1, seeds: {}
+      profile: { name: "", weddingDate: "" },      /* الاسم الفارغ = يظهر الاسم الافتراضي DEFAULT_BRIDE_NAME */
+      totalBudget: null, categories: [], items: [], nextId: 1, seeds: {}
     };
-    applySeeds(fresh);
+    applySeeds(fresh);          /* الرفايع */
+    applyCatalogV5(fresh);      /* الفئات الجديدة (ثم تُرتَّب الرفايع بعدها) */
     return fresh;
   }
 
@@ -152,7 +196,10 @@
       name: String(c.name || "فئة بدون اسم").slice(0, 60),
       sortOrder: Number.isFinite(Number(c.sortOrder)) ? Number(c.sortOrder) : i + 1,
       icon: ICON_KEYS.includes(c.icon) ? c.icon : "auto",
-      description: String(c.description || "").slice(0, 120)
+      description: String(c.description || "").slice(0, 120),
+      budget: strict && c.budget !== undefined && c.budget !== null && c.budget !== "" && cleanBudget(c.budget) === null
+        ? (() => { throw new Error(`ميزانية الفئة "${c.name || i + 1}" غير صحيحة.`); })()
+        : cleanBudget(c.budget)
     }));
     const catIds = new Set(categories.map(c => c.id));
     const items = raw.items.map((it, i) => {
@@ -162,7 +209,7 @@
       let categoryId = String(it.categoryId);
       if (!catIds.has(categoryId)) {
         if (strict) throw new Error(`البند "${label}" مرتبط بفئة غير موجودة.`);
-        if (!catIds.has(FALLBACK_CAT.id)) { categories.push({ ...FALLBACK_CAT, sortOrder: categories.length + 1, icon: "box", description: "" }); catIds.add(FALLBACK_CAT.id); }
+        if (!catIds.has(FALLBACK_CAT.id)) { categories.push({ ...FALLBACK_CAT, sortOrder: categories.length + 1, icon: "box", description: "", budget: null }); catIds.add(FALLBACK_CAT.id); }
         categoryId = FALLBACK_CAT.id;
       }
       if (!Number.isInteger(required) || required < 0 || !Number.isInteger(purchased) || purchased < 0 || purchased > required) {
@@ -184,6 +231,7 @@
         id: String(it.id || `item-import-${i}`), categoryId,
         name: String(it.name || "بند بدون اسم").slice(0, 100), unit: String(it.unit || "قطعة").slice(0, 25),
         required, purchased, unitPrice, status, notes: String(it.notes || "").slice(0, 500),
+        group: String(it.group || "").slice(0, 80),
         sortOrder: Number.isFinite(Number(it.sortOrder)) ? Number(it.sortOrder) : i + 1,
         createdAt: it.createdAt || new Date().toISOString(), updatedAt: it.updatedAt || new Date().toISOString()
       };
@@ -201,11 +249,20 @@
       totalBudget: budget !== null && Number.isFinite(budget) && budget >= 0 ? budget : null,
       categories, items,
       nextId: Math.max(1, Number(raw.nextId) || 1),
-      seeds: raw.seeds && typeof raw.seeds === "object" ? { rafayea: raw.seeds.rafayea === true } : {}
+      seeds: raw.seeds && typeof raw.seeds === "object" ? { rafayea: raw.seeds.rafayea === true, catalogV5: raw.seeds.catalogV5 === true } : {}
     };
   }
 
   let storageOk = true;
+  let migrationNotice = null;     /* تُعرض مرة واحدة في الواجهة بعد الترحيل */
+  /* يكتب نسخة احتياطية ويتأكد من حفظها فعلًا (لا نحذف شيئًا قبل ذلك) */
+  function writeBackup(key, raw, overwrite) {
+    try {
+      if (!overwrite && localStorage.getItem(key) !== null) return true;
+      localStorage.setItem(key, raw);
+      return localStorage.getItem(key) === raw;
+    } catch (e) { console.error(e); return false; }
+  }
   function load() {
     let raw = null;
     try { raw = localStorage.getItem(STORAGE_KEY); } catch (error) { storageOk = false; console.error(error); }
@@ -217,12 +274,21 @@
     try {
       const parsed = JSON.parse(raw);
       const next = normalizeState(parsed, false);
-      const needsSave = (parsed.schema || 1) < SCHEMA;
-      const seeded = applySeeds(next); // إضافة «الرفايع» مرة واحدة فقط، دون لمس بيانات المستخدم
-      if (needsSave || seeded) { // Migration: نحتفظ بنسخة من البيانات القبل-تحديث أولًا
+      const oldSchema = parsed.schema || 1;
+      const seeded = applySeeds(next);   // إضافة «الرفايع» مرة واحدة فقط، دون لمس بيانات المستخدم
+      let migrated = null, deferred = false;
+      if (!next.seeds.catalogV5) {
+        /* الترحيل: النسخة الاحتياطية أولًا. لو تعذر حفظها (مساحة ممتلئة) نترك البيانات كما هي ونعيد المحاولة لاحقًا. */
+        if (writeBackup(BACKUP_V5_KEY, raw, true)) migrated = applyCatalogV5(next);
+        else { deferred = true; migrationNotice = { failed: true }; }
+      }
+      if (migrated) migrationNotice = { ...migrated };
+      const needsSave = oldSchema < SCHEMA || seeded || !!migrated;
+      if (needsSave && !deferred) {
         try {
-          if (localStorage.getItem(STORAGE_KEY + ".pre-v3-backup") === null) localStorage.setItem(STORAGE_KEY + ".pre-v3-backup", raw);
-          if ((parsed.schema || 1) < 2 && localStorage.getItem(STORAGE_KEY + ".pre-v2-backup") === null) localStorage.setItem(STORAGE_KEY + ".pre-v2-backup", raw);
+          if (oldSchema < 4) writeBackup(STORAGE_KEY + ".pre-v4-backup", raw);
+          if (oldSchema < 3) writeBackup(STORAGE_KEY + ".pre-v3-backup", raw);
+          if (oldSchema < 2) writeBackup(STORAGE_KEY + ".pre-v2-backup", raw);
           localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
         } catch (e) { console.error(e); }
       }
@@ -260,14 +326,52 @@
   window.BrideStore = {
     ICON_KEYS, DEFAULT_BRIDE_NAME,
     isPersistent: () => storageOk,
+    consumeMigrationNotice() { const n = migrationNotice; migrationNotice = null; return n; },
+    getPreV5Backup() { try { return localStorage.getItem(BACKUP_V5_KEY); } catch (e) { return null; } },
+    /* قوائم النصائح الذهبية: معرّفات المهام المنجزة فقط، في مفتاح مستقل */
+    getTipsDone() {
+      try { const o = JSON.parse(localStorage.getItem(TIPS_KEY) || "null"); return o && o.done && typeof o.done === "object" ? { ...o.done } : {}; }
+      catch (e) { return {}; }
+    },
+    setTipsDone(ids, on) {
+      const done = this.getTipsDone();
+      ids.forEach(id => { if (on) done[id] = true; else delete done[id]; });
+      try { localStorage.setItem(TIPS_KEY, JSON.stringify({ version: 1, done })); }
+      catch (e) { throw new Error("المتصفح لم يستطع حفظ علامات النصائح. تأكدي من المساحة المتاحة."); }
+    },
     getState: () => clone(state),
     save,
     updateProfile(profile) { return commit(() => { state.profile = { ...state.profile, ...profile }; }); },
     setBudget(value) { return commit(() => { state.totalBudget = value; }); },
+    /* ميزانية الفئة: تعديل فئة واحدة فقط ولا تلمس غيرها. القيمة الفارغة = غير محددة. */
+    setCategoryBudget(id, value) {
+      const cat = state.categories.find(c => c.id === id);
+      if (!cat) throw new Error("الفئة غير موجودة.");
+      if (value !== null && value !== "" && value !== undefined && cleanBudget(value) === null) throw new Error("اكتبي ميزانية صحيحة أكبر من أو تساوي صفر.");
+      return commit(() => { cat.budget = cleanBudget(value); return cat.budget; });
+    },
+    /* الصورة المخصصة ليوم الفرح: مفتاح مستقل، وتفشل بوضوح عند امتلاء التخزين دون مسح أي بيانات. */
+    getHeroImage() {
+      try {
+        const raw = localStorage.getItem(IMAGE_KEY); if (!raw) return null;
+        const obj = JSON.parse(raw);
+        return obj && typeof obj.dataUrl === "string" && IMG_RE.test(obj.dataUrl) ? obj : null;
+      } catch (e) { return null; }
+    },
+    setHeroImage(dataUrl) {
+      if (!IMG_RE.test(dataUrl || "")) throw new Error("الصورة غير صالحة.");
+      try { localStorage.setItem(IMAGE_KEY, JSON.stringify({ dataUrl, savedAt: new Date().toISOString() })); }
+      catch (error) {
+        throw new Error(error && (error.name === "QuotaExceededError" || error.code === 22 || error.code === 1014)
+          ? "مساحة تخزين المتصفح ممتلئة، فلم نقدر نحفظ الصورة. بياناتك زي ما هي ولم يتم مسح أي حاجة."
+          : "تعذر حفظ الصورة في المتصفح.");
+      }
+    },
+    clearHeroImage() { try { localStorage.removeItem(IMAGE_KEY); } catch (e) { /* ignore */ } },
     addCategory(name, opts = {}) {
       const clean = checkCategoryName(name);
       return commit(() => {
-        const cat = { id: createId("cat"), name: clean, sortOrder: state.categories.length + 1, icon: cleanIcon(opts.icon), description: String(opts.description || "").trim().slice(0, 120) };
+        const cat = { id: createId("cat"), name: clean, sortOrder: state.categories.length + 1, icon: cleanIcon(opts.icon), description: String(opts.description || "").trim().slice(0, 120), budget: null };
         state.categories.push(cat);
         return clone(cat);
       });
@@ -287,7 +391,7 @@
       return commit(() => {
         item.id = createId("item");
         item.createdAt = item.updatedAt = new Date().toISOString();
-        item.sortOrder = state.items.length + 1;
+        item.sortOrder = state.items.reduce((m, it) => Math.max(m, Number(it.sortOrder) || 0), 0) + 1;
         state.items.push(item);
         return clone(item);
       });
@@ -297,7 +401,9 @@
       if (index < 0) throw new Error("البند غير موجود.");
       const item = this.validateItem(data);
       return commit(() => {
-        state.items[index] = { ...state.items[index], ...item, id, updatedAt: new Date().toISOString() };
+        const prev = state.items[index];
+        state.items[index] = { ...prev, ...item, id, updatedAt: new Date().toISOString() };
+        if (prev.categoryId !== item.categoryId) state.items[index].group = "";   /* التقسيم الفرعي يخص الفئة الأصلية فقط */
         return clone(state.items[index]);
       });
     },
@@ -327,12 +433,27 @@
       if (state.items.some(it => it.categoryId === id)) throw new Error("انقلي أو احذفي البنود الموجودة داخل الفئة الأول.");
       commit(() => { state.categories = state.categories.filter(c => c.id !== id); }, "تعذر حفظ التغيير.");
     },
-    exportData() { return JSON.stringify({ ...clone(state), exportedAt: new Date().toISOString(), app: "قائمة العروسة" }, null, 2); },
+    exportData() {
+      const out = { ...clone(state), exportedAt: new Date().toISOString(), app: "قائمة العروسة" };
+      const img = this.getHeroImage();                    /* لا يفشل التصدير بسبب صورة كبيرة: نتجاوزها إن زادت عن الحد */
+      if (img && img.dataUrl.length <= IMAGE_EXPORT_MAX) out.heroImage = img.dataUrl;
+      out.tipsDone = Object.keys(this.getTipsDone());
+      return JSON.stringify(out, null, 2);
+    },
     importData(raw) {
       const next = normalizeState(raw, true);
       applySeeds(next);
+      applyCatalogV5(next);   /* ملف قديم يُحدَّث لنفس الفئات الجديدة؛ والملف الجديد (العلامة موجودة) لا يتغير */
+      writeBackup(STORAGE_KEY + ".pre-import-backup", JSON.stringify(state), true);   /* أمان إضافي قبل الاستبدال */
       commit(() => { state = next; }, "تعذر حفظ النسخة المستوردة في المتصفح.");
+      if (Array.isArray(raw.tipsDone)) {
+        const ids = raw.tipsDone.filter(id => typeof id === "string" && /^[a-z0-9-]{1,40}$/.test(id));
+        try { localStorage.removeItem(TIPS_KEY); this.setTipsDone(ids, true); } catch (e) { /* اختياري */ }
+      }
+      if (typeof raw.heroImage === "string" && raw.heroImage.length <= IMAGE_EXPORT_MAX && IMG_RE.test(raw.heroImage)) {
+        try { this.setHeroImage(raw.heroImage); } catch (e) { /* الصورة اختيارية: تبقى البيانات سليمة */ }
+      }
     },
-    reset() { commit(() => { state = makeInitialState(); }, "تعذر إعادة ضبط البيانات."); }
+    reset() { commit(() => { state = makeInitialState(); }, "تعذر إعادة ضبط البيانات."); this.clearHeroImage(); try { localStorage.removeItem(TIPS_KEY); } catch (e) { /* ignore */ } }
   };
 })();
